@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FanScode Console V3.2</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body { background-color: #0d1117; color: #c9d1d9; font-family: 'Inter', sans-serif; overflow-x: hidden; }
+        .glass-panel { background: #161b22; border: 1px solid #30363d; }
+        input, select { background: #0d1117 !important; border: 1px solid #30363d !important; color: white !important; }
+        
+        /* Loading Styles */
+        #loadingOverlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 9999; flex-direction: column; align-items: center; justify-content: center; backdrop-filter: blur(5px); }
+        .spinner { border: 4px solid #30363d; border-top: 4px solid #238636; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .custom-scroll::-webkit-scrollbar { width: 5px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #30363d; border-radius: 10px; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div id="loadingOverlay">
+        <div class="spinner mb-4"></div>
+        <p class="text-white font-mono text-sm tracking-widest animate-pulse" id="loadingText">EXECUTING API...</p>
+    </div>
+
+    <div class="max-w-6xl mx-auto">
+        <header class="flex flex-col md:flex-row justify-between items-center mb-10 gap-6">
+            <div>
+                <h1 class="text-3xl font-black text-white italic tracking-tighter">FanScode <span class="text-green-500 underline">V3.2</span></h1>
+                <p class="text-gray-500 text-xs font-mono uppercase">Status: Connected to Google Cloud API</p>
+            </div>
+            <div class="flex gap-2">
+                <input type="text" id="newFileName" placeholder="New Spreadsheet Name" class="p-2.5 rounded-lg text-sm w-48">
+                <button onclick="apiCreateFile()" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-bold text-xs transition">CREATE SHEET</button>
+            </div>
+        </header>
+
+        <main class="glass-panel rounded-2xl p-6 md:p-8 shadow-2xl">
+            <div class="flex flex-col md:flex-row gap-4 mb-8">
+                <select id="sheetId" onchange="loadData()" class="flex-1 p-3 rounded-xl cursor-pointer font-bold text-green-500">
+                    <option value="">-- SELECT DATA SOURCE --</option>
+                </select>
+                <div class="flex gap-2">
+                    <button onclick="loadList()" class="bg-gray-800 p-4 rounded-xl border border-gray-700 hover:bg-gray-700"><i class="fas fa-sync-alt"></i></button>
+                    <button onclick="handleDownload()" class="bg-gray-800 p-4 rounded-xl border border-gray-700 text-blue-400 hover:bg-gray-700"><i class="fas fa-file-excel"></i></button>
+                    <button onclick="openModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl font-bold transition">
+                        <i class="fas fa-plus mr-2"></i>ADD RECORD
+                    </button>
+                </div>
+            </div>
+
+            <div class="mb-8 p-4 bg-[#0d1117] rounded-xl border border-gray-800 flex flex-col md:flex-row gap-3 items-center">
+                <i class="fas fa-columns text-gray-600 ml-2"></i>
+                <input type="text" id="newColName" placeholder="New Column Header (e.g. Price, Status, Date)..." class="flex-1 p-2 rounded-lg text-sm bg-transparent border-none focus:ring-0">
+                <button onclick="apiAddCol()" class="bg-gray-800 text-green-500 hover:bg-gray-700 font-black text-[10px] px-6 py-2 rounded-lg tracking-widest border border-gray-700">
+                    ADD COLUMN
+                </button>
+            </div>
+
+            <div class="overflow-x-auto rounded-xl border border-gray-800">
+                <table class="w-full text-left">
+                    <thead id="tableHead" class="bg-[#161b22] text-gray-500 uppercase text-[10px] font-black tracking-widest border-b border-gray-800"></thead>
+                    <tbody id="tableBody" class="divide-y divide-gray-800 text-sm">
+                        <tr><td class="p-20 text-center text-gray-700 italic">Select a database to start...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </main>
+    </div>
+
+    <div id="modal" class="hidden fixed inset-0 bg-black/90 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+        <div class="bg-[#161b22] p-8 rounded-2xl w-full max-w-md border border-gray-700 shadow-2xl">
+            <h2 id="modalTitle" class="text-white text-xl font-bold mb-6 border-l-4 border-green-500 pl-4">ENTRY FORM</h2>
+            <div id="formFields" class="space-y-5 max-h-[50vh] overflow-y-auto pr-2 custom-scroll"></div>
+            <div class="mt-8 flex justify-end gap-4 border-t border-gray-800 pt-6">
+                <button onclick="closeModal()" class="text-gray-500 hover:text-white transition text-xs font-bold">CANCEL</button>
+                <button onclick="saveData()" class="bg-green-600 hover:bg-green-700 text-white px-10 py-3 rounded-xl font-black text-xs tracking-widest">SAVE TO CLOUD</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = "https://script.google.com/macros/s/AKfycbxuDkQLTmzd_482q1dcaTUXh-NHQ7yrL_l6-f460Aua06IKXyRcnyjqIp95evuHsUsTMg/exec"; 
+        let currentEditIndex = null;
+        let headers = [];
+
+        // SISTEM DO ACTION DENGAN LOADING LOCK & PRINT LOG
+        async function doAction(action, params = {}) {
+            const overlay = document.getElementById('loadingOverlay');
+            const loadingText = document.getElementById('loadingText');
+            
+            overlay.style.display = 'flex';
+            loadingText.innerText = `CLOUD: EXECUTING ${action.toUpperCase()}...`;
+            
+            // PRINT SYNTAX KE CONSOLE (F12)
+            console.log(`%c[V3-API] %c${action}`, "color: #238636; font-weight: bold", "color: #fff", params);
+
+            try {
+                const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action, ...params }) });
+                const json = await res.json();
+                
+                if (json.status === 'error') {
+                    showToast("ERROR: " + json.message, "error");
+                } else {
+                    showToast(`${action.toUpperCase()} SUCCESS!`);
+                }
+                
+                console.log(`%c[V3-API] %cRESULT`, "color: #238636; font-weight: bold", "color: #fff", json);
+                overlay.style.display = 'none';
+                return json;
+            } catch (e) {
+                overlay.style.display = 'none';
+                showToast("CLOUD DISCONNECTED!", "error");
+                console.error("[V3-CRITICAL]", e);
+            }
+        }
+
+        function showToast(msg, type = 'success') {
+            const t = document.createElement('div');
+            t.className = `fixed bottom-6 right-6 px-8 py-4 rounded-xl text-white font-black text-[10px] tracking-widest z-[10000] shadow-2xl`;
+            t.style.backgroundColor = type === 'success' ? '#238636' : '#da3633';
+            t.innerText = msg;
+            document.body.appendChild(t);
+            setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 500); }, 3000);
+        }
+
+        async function loadList() {
+            const data = await doAction('getList');
+            const sel = document.getElementById('sheetId');
+            sel.innerHTML = '<option value="">-- SELECT DATA SOURCE --</option>';
+            data.forEach(f => sel.innerHTML += `<option value="${f.id}">${f.name}</option>`);
+        }
+
+        async function loadData() {
+            const id = document.getElementById('sheetId').value;
+            if(!id) return;
+            const data = await doAction('getData', {sheetId: id});
+            headers = data.headers;
+
+            if(!headers.length) {
+                document.getElementById('tableHead').innerHTML = "";
+                document.getElementById('tableBody').innerHTML = '<tr><td class="p-20 text-center text-gray-700">Empty Sheet. Please add a column header first.</td></tr>';
+                return;
+            }
+
+            document.getElementById('tableHead').innerHTML = `<tr>${headers.map(h => `<th class="px-6 py-4">${h}</th>`).join('')} <th class="px-6 py-4 text-center">ACTIONS</th></tr>`;
+            
+            document.getElementById('tableBody').innerHTML = data.rows.length ? data.rows.map((r, i) => `
+                <tr class="hover:bg-gray-800/30">
+                    ${r.map(c => `<td class="px-6 py-4 border-t border-gray-800">${c}</td>`).join('')}
+                    <td class="px-6 py-4 border-t border-gray-800 text-center space-x-4">
+                        <button onclick='openModal(${i}, ${JSON.stringify(r)})' class="text-blue-400 hover:text-white"><i class="fas fa-edit"></i></button>
+                        <button onclick="apiDeleteRow(${i})" class="text-red-500 hover:text-white"><i class="fas fa-trash"></i></button>
+                    </td>
+                </tr>
+            `).join('') : '<tr><td colspan="100%" class="p-20 text-center text-gray-800 italic">No records found. Click "Add Record" to start.</td></tr>';
+        }
+
+        async function apiAddCol() {
+            const id = document.getElementById('sheetId').value;
+            const input = document.getElementById('newColName');
+            const colName = input.value;
+            if(!id || !colName) return showToast("SELECT SHEET & INPUT NAME", "error");
+            
+            input.value = ""; // Anti-Spam
+            await doAction('addColumn', {sheetId: id, colName: colName});
+            loadData();
+        }
+
+        async function apiCreateFile() {
+            const input = document.getElementById('newFileName');
+            if(!input.value) return showToast("ENTER FILENAME", "error");
+            await doAction('create', {name: input.value});
+            input.value = "";
+            loadList();
+        }
+
+        async function apiDeleteRow(index) {
+            if(!confirm("Are you sure? This will delete the row permanently.")) return;
+            await doAction('deleteRow', { sheetId: document.getElementById('sheetId').value, rowIndex: index });
+            loadData();
+        }
+
+        function openModal(index = null, rowData = null) {
+            if(!headers.length) return showToast("CREATE COLUMNS FIRST", "error");
+            currentEditIndex = index;
+            document.getElementById('modalTitle').innerText = index !== null ? "EDIT RECORD" : "ADD NEW RECORD";
+            document.getElementById('formFields').innerHTML = headers.map((h, i) => `
+                <div>
+                    <label class="text-[10px] uppercase font-black text-gray-500 ml-1">${h}</label>
+                    <input type="text" class="field-input w-full p-3 rounded-xl mt-1 text-sm" value="${rowData ? rowData[i] : ''}" placeholder="...">
+                </div>
+            `).join('');
+            document.getElementById('modal').classList.remove('hidden');
+        }
+
+        async function saveData() {
+            const id = document.getElementById('sheetId').value;
+            const rowData = Array.from(document.querySelectorAll('.field-input')).map(i => i.value);
+            const action = currentEditIndex !== null ? 'editRow' : 'saveRow';
+            await doAction(action, { sheetId: id, rowData, rowIndex: currentEditIndex });
+            closeModal();
+            loadData();
+        }
+
+        function handleDownload() {
+            const id = document.getElementById('sheetId').value;
+            if(id) window.open(`https://docs.google.com/spreadsheets/d/${id}/export?format=xlsx`, '_blank');
+        }
+
+        function closeModal() { document.getElementById('modal').classList.add('hidden'); }
+        loadList();
+    </script>
+</body>
+  </html>
+  
