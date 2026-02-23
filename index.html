@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FanScode Console V3.1</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body { background-color: #0d1117; color: #c9d1d9; font-family: 'Inter', sans-serif; }
+        .glass-panel { background: #161b22; border: 1px solid #30363d; }
+        input, select { background: #0d1117 !important; border: 1px solid #30363d !important; color: white !important; }
+    </style>
+</head>
+<body class="p-6">
+    <div class="max-w-6xl mx-auto">
+        <header class="flex flex-col md:flex-row justify-between items-center mb-10 gap-4">
+            <div>
+                <h1 class="text-3xl font-extrabold text-white">FanScode <span class="text-green-500">Console</span></h1>
+                <p class="text-gray-500 text-sm">V3 Multi-Function Dashboard</p>
+            </div>
+            <div class="flex gap-2">
+                <input type="text" id="newFile" placeholder="New Spreadsheet Name" class="p-2.5 rounded-lg text-sm w-64">
+                <button onclick="apiCreateFile()" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-bold transition">Create</button>
+            </div>
+        </header>
+
+        <main class="glass-panel rounded-2xl p-8 shadow-2xl">
+            <div class="flex flex-col md:flex-row gap-4 mb-8">
+                <select id="sheetId" onchange="loadData()" class="flex-1 p-3 rounded-xl cursor-pointer">
+                    <option value="">-- Select Database --</option>
+                </select>
+                <div class="flex gap-2">
+                    <button onclick="loadList()" class="bg-gray-800 p-4 rounded-xl border border-gray-600 hover:bg-gray-700"><i class="fas fa-sync-alt"></i></button>
+                    <button onclick="handleDownload()" class="bg-gray-800 p-4 rounded-xl border border-gray-600 text-blue-400 hover:bg-gray-700"><i class="fas fa-file-excel"></i></button>
+                    <button onclick="openModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl font-bold transition">
+                        <i class="fas fa-plus mr-2"></i>Add Record
+                    </button>
+                </div>
+            </div>
+
+            <div class="mb-8 p-4 bg-[#0d1117] rounded-xl border border-gray-800 flex gap-3 items-center">
+                <input type="text" id="newCol" placeholder="New Column Header (e.g., Price, Stock)" class="flex-1 p-2 rounded-lg text-sm bg-transparent border-none">
+                <button onclick="apiAddCol()" class="text-green-500 hover:text-green-400 font-bold text-sm px-4">
+                    <i class="fas fa-columns mr-1"></i> Add Column
+                </button>
+            </div>
+
+            <div class="overflow-x-auto rounded-xl border border-gray-700">
+                <table class="w-full text-left">
+                    <thead id="tableHead" class="bg-[#21262d] text-gray-400 uppercase text-xs font-bold tracking-widest"></thead>
+                    <tbody id="tableBody" class="divide-y divide-gray-800 text-sm">
+                        <tr><td class="p-10 text-center text-gray-600 italic">Please select a data source...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </main>
+    </div>
+
+    <div id="modal" class="hidden fixed inset-0 bg-black/90 flex items-center justify-center p-4 z-50 backdrop-blur-sm">
+        <div class="bg-[#161b22] p-8 rounded-2xl w-full max-w-md border border-gray-700">
+            <h2 id="modalTitle" class="text-white text-xl font-bold mb-6 border-l-4 border-green-500 pl-3">New Entry</h2>
+            <div id="formFields" class="space-y-5 max-h-[50vh] overflow-y-auto pr-2"></div>
+            <div class="mt-8 flex justify-end gap-4">
+                <button onclick="closeModal()" class="text-gray-400 hover:text-white transition">Discard</button>
+                <button onclick="saveData()" class="bg-green-600 hover:bg-green-700 text-white px-10 py-3 rounded-xl font-bold transition">Commit Data</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = "https://script.google.com/macros/s/AKfycby8tJz1155DTnbEOmu-IZmJOQNwBnMEeaPO4j2ZFPhhQcsQ9Khv0sYpDtExA0zOItwx5Q/exec";
+        let currentEditIndex = null;
+        let headers = [];
+
+        async function doAction(action, params = {}) {
+            document.body.style.cursor = 'wait';
+            const res = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action, ...params }) });
+            document.body.style.cursor = 'default';
+            return await res.json();
+        }
+
+        async function loadList() {
+            const data = await doAction('getList');
+            const sel = document.getElementById('sheetId');
+            sel.innerHTML = '<option value="">-- Select Database --</option>';
+            data.forEach(f => sel.innerHTML += `<option value="${f.id}">${f.name}</option>`);
+        }
+
+        async function loadData() {
+            const id = document.getElementById('sheetId').value;
+            if(!id) return;
+            const data = await doAction('getData', {sheetId: id});
+            headers = data.headers;
+
+            // Render Header
+            document.getElementById('tableHead').innerHTML = `<tr>${headers.map(h => `<th class="px-6 py-4">${h}</th>`).join('')} <th class="px-6 py-4 text-center">Manage</th></tr>`;
+            
+            // Render Rows
+            document.getElementById('tableBody').innerHTML = data.rows.map((r, i) => `
+                <tr class="hover:bg-gray-800/40">
+                    ${r.map(c => `<td class="px-6 py-4 border-t border-gray-800">${c}</td>`).join('')}
+                    <td class="px-6 py-4 border-t border-gray-800 text-center space-x-3">
+                        <button onclick='openModal(${i}, ${JSON.stringify(r)})' class="text-blue-400"><i class="fas fa-edit"></i></button>
+                        <button onclick="apiDeleteRow(${i})" class="text-red-500"><i class="fas fa-trash"></i></button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        async function apiAddCol() {
+            const id = document.getElementById('sheetId').value;
+            const col = document.getElementById('newCol').value;
+            if(!id || !col) return alert("Select sheet & input column name!");
+            await doAction('addColumn', {sheetId: id, colName: col});
+            document.getElementById('newCol').value = "";
+            loadData();
+        }
+
+        function openModal(index = null, rowData = null) {
+            if(headers.length === 0) return alert("Add some columns first!");
+            currentEditIndex = index;
+            document.getElementById('modalTitle').innerText = index !== null ? "Edit Record" : "New Entry";
+            document.getElementById('formFields').innerHTML = headers.map((h, i) => `
+                <div>
+                    <label class="text-[10px] uppercase tracking-widest text-gray-500 font-bold ml-1">${h}</label>
+                    <input type="text" class="field-input w-full p-3 rounded-lg mt-1" value="${rowData ? rowData[i] : ''}" placeholder="Enter ${h}">
+                </div>
+            `).join('');
+            document.getElementById('modal').classList.remove('hidden');
+        }
+
+        async function saveData() {
+            const id = document.getElementById('sheetId').value;
+            const rowData = Array.from(document.querySelectorAll('.field-input')).map(i => i.value);
+            const action = currentEditIndex !== null ? 'editRow' : 'saveRow';
+            await doAction(action, { sheetId: id, rowData, rowIndex: currentEditIndex });
+            closeModal();
+            loadData();
+        }
+
+        async function apiDeleteRow(index) {
+            if(!confirm("Hapus baris ini?")) return;
+            await doAction('deleteRow', { sheetId: document.getElementById('sheetId').value, rowIndex: index });
+            loadData();
+        }
+
+        async function apiCreateFile() {
+            const name = document.getElementById('newFile').value;
+            if(!name) return;
+            await doAction('create', {name});
+            document.getElementById('newFile').value = "";
+            loadList();
+        }
+
+        function handleDownload() {
+            const id = document.getElementById('sheetId').value;
+            if(id) window.open(`https://docs.google.com/spreadsheets/d/${id}/export?format=xlsx`, '_blank');
+        }
+
+        function closeModal() { document.getElementById('modal').classList.add('hidden'); }
+        loadList();
+    </script>
+</body>
+</html>
